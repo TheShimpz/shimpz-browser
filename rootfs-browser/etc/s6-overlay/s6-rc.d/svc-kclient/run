@@ -1,0 +1,26 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+
+# The Kasm base's microphone bridge must be ready before kclient starts.
+if [ ! -f '/dev/shm/mic.lock' ]; then
+  until [ -f /defaults/pid ]; do
+    sleep .5
+  done
+  s6-setuidgid abc with-contenv pactl \
+    load-module module-pipe-source \
+    source_name=virtmic \
+    file=/defaults/mic.sock \
+    source_properties=device.description=LSIOMic \
+    format=s16le \
+    rate=44100 \
+    channels=1
+  s6-setuidgid abc with-contenv pactl \
+    set-default-source virtmic
+  touch /dev/shm/mic.lock
+fi
+
+# Use the verified Node 24 runtime explicitly. PATH changes cannot send kclient back to an inherited
+# system Node, and pulse.node is rebuilt for this runtime's ABI in the Dockerfile builder stage.
+cd /kclient || exit 1
+exec s6-setuidgid abc \
+  /opt/node24/bin/node index.js

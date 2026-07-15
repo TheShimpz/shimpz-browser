@@ -13,7 +13,10 @@
 # MUST keep CAP_SYS_ADMIN + unconfined seccomp/apparmor at the compose level — Chrome's OWN
 # sandbox needs them; dropping forces --no-sandbox, a regression for a browser that exists to
 # visit untrusted sites. `shimpz-brain` (the brain) is the one that loses those caps, not this container.
-FROM lscr.io/linuxserver/baseimage-kasmvnc:ubuntunoble@sha256:c6d902c207d6e4a66ca41ce36dda549cd58a5bc8d353468b24b0cf780eb528c8
+ARG NODE_VERSION=24.18.0
+ARG NODE_SHA256=55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742
+
+FROM lscr.io/linuxserver/baseimage-kasmvnc:ubuntunoble@sha256:c6d902c207d6e4a66ca41ce36dda549cd58a5bc8d353468b24b0cf780eb528c8 AS shimpz-kasm-base
 ARG SOURCE_DATE_EPOCH=0
 
 ARG UBUNTU_SNAPSHOT=20260623T000000Z
@@ -28,6 +31,52 @@ RUN set -eux; \
     test "$(grep -Fc "https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}" /etc/apt/sources.list)" -eq 3; \
     ! grep -RqsE 'https?://(archive|security)\.ubuntu\.com|https?://download\.docker\.com' \
         /etc/apt/sources.list /etc/apt/sources.list.d
+
+# The pinned Kasm base ships kclient on Ubuntu's EOL Node 18 ABI 109. Build its only native addon
+# twice against the exact Node 24 archive and keep only equal, stripped ABI-137 output. Build tools,
+# headers, npm, and node-gyp remain in this throwaway stage; the final image receives one runtime
+# binary, its license, and one addon. npm_config_nodedir prevents node-gyp from downloading mutable
+# headers.
+FROM shimpz-kasm-base AS kclient-node24-builder
+ARG SOURCE_DATE_EPOCH=0
+ARG NODE_VERSION
+ARG NODE_SHA256
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends build-essential ca-certificates curl libpulse-dev pkg-config python3; \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+        -o /tmp/node.tar.xz; \
+    echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c -; \
+    mkdir -p /opt/node24 /out; \
+    tar -xJf /tmp/node.tar.xz -C /opt/node24 --strip-components=1; \
+    test "$(/opt/node24/bin/node --version)" = "v${NODE_VERSION}"; \
+    test "$(/opt/node24/bin/node -p 'process.versions.modules')" = "137"; \
+    cd /kclient/node_modules/pulseaudio2; \
+    export PATH="/opt/node24/bin:${PATH}" npm_config_nodedir=/opt/node24 SOURCE_DATE_EPOCH; \
+    build_addon() { \
+        rm -rf build; \
+        /opt/node24/bin/node \
+            /opt/node24/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js \
+            rebuild --nodedir=/opt/node24; \
+        strip --strip-unneeded build/Release/pulse.node; \
+    }; \
+    build_addon; \
+    install -m 0755 build/Release/pulse.node /out/pulse.first.node; \
+    build_addon; \
+    cmp /out/pulse.first.node build/Release/pulse.node; \
+    install -m 0755 build/Release/pulse.node /out/pulse.node; \
+    ! ldd /out/pulse.node | grep -q 'libnode\.so'; \
+    /opt/node24/bin/node -e "require('/out/pulse.node')"; \
+    rm -f /tmp/node.tar.xz; \
+    rm -rf /root/.cache/node-gyp /root/.npm /config/.npm /tmp/node-compile-cache; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /var/lib/apt/periodic/* /var/cache/apt/* /var/cache/fontconfig/* \
+        /var/cache/ldconfig/aux-cache /var/cache/man/* /var/log/apt/* \
+        /var/log/alternatives.log /var/log/dpkg.log
+
+FROM shimpz-kasm-base AS shimpz-browser
+ARG SOURCE_DATE_EPOCH=0
+ARG NODE_VERSION
 
 LABEL org.opencontainers.image.title="shimpz-browser" \
       org.opencontainers.image.description="Chrome + KasmVNC desktop + browser-agent (SECURITY_ENGINEERING_PLAN.md item 0)"
@@ -67,7 +116,7 @@ RUN gpasswd -d abc sudo 2>/dev/null || true; \
 # --- System deps: Chrome, desktop terminal, real-input stack, screenshot toolbelt ---
 # Everything here is Chrome/desktop/automation-specific — NONE of the document-toolbelt/dev-tooling
 # packages the brain needs (those moved to shimpz-brain/Dockerfile; this container never runs Claude Code,
-# ruff, node, project scaffolding, etc).
+# ruff, or project scaffolding; its sole Node runtime executes the inherited kclient service).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl ca-certificates \
@@ -123,13 +172,38 @@ COPY browser-agent/app.py browser-agent/validate.py browser-agent/audit.py brows
      browser-agent/upload_client.py browser-agent/downloads_client.py browser-agent/healthcheck.py \
      browser-agent/native_process.py ./
 
+# Replace the inherited Node 18 runtime without carrying a compiler or package manager forward.
+# kclient's rebuilt addon resolves Node symbols from the executable and no longer needs libnode109.
+COPY --from=kclient-node24-builder /opt/node24/bin/node /opt/node24/bin/node
+COPY --from=kclient-node24-builder /opt/node24/LICENSE /opt/node24/LICENSE
+COPY --from=kclient-node24-builder /out/pulse.node /kclient/node_modules/pulseaudio2/build/Release/pulse.node
+RUN set -eux; \
+    apt-get purge -y nodejs libnode109 node-acorn; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /var/lib/apt/periodic/* /var/cache/apt/* /var/cache/fontconfig/* \
+        /var/cache/ldconfig/aux-cache /var/cache/man/* /var/log/apt/* \
+        /var/log/alternatives.log /var/log/dpkg.log; \
+    test ! -e /usr/bin/node; \
+    test "$(/opt/node24/bin/node --version)" = "v${NODE_VERSION}"; \
+    test "$(/opt/node24/bin/node -p 'process.versions.modules')" = "137"; \
+    s6-setuidgid abc /opt/node24/bin/node \
+        -e "require('/kclient/node_modules/pulseaudio2/build/Release/pulse.node')"; \
+    ! ldd /kclient/node_modules/pulseaudio2/build/Release/pulse.node | grep -q 'libnode\.so'; \
+    for package in nodejs libnode109 node-acorn; do \
+        ! dpkg-query -W -f='${db:Status-Abbrev}' "$package" 2>/dev/null | grep -q '^ii'; \
+    done
+ENV PATH="/opt/node24/bin:$PATH"
+
 # --- Overlay browser-only s6 services, autostart, and Chrome policy/spoof assets ---
 COPY rootfs-browser/ /
 
 RUN chmod +x /usr/local/bin/shimpz-glspoof /usr/local/bin/shimpz-kasm-patch \
              /defaults/autostart \
              /etc/s6-overlay/s6-rc.d/svc-kasmvnc/run \
+             /etc/s6-overlay/s6-rc.d/svc-kclient/run \
              /custom-cont-init.d/*.sh 2>/dev/null || true
+
+RUN grep -qF '/opt/node24/bin/node index.js' /etc/s6-overlay/s6-rc.d/svc-kclient/run
 
 # Patch the served KasmVNC web client (human-watch UX only — Shimpz drives via browser-agent).
 RUN /usr/local/bin/shimpz-kasm-patch || true

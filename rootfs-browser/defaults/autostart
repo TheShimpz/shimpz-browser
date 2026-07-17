@@ -4,10 +4,9 @@
 # body must be POSIX-sh safe (no `set -o pipefail`, no bashisms). Container env
 # (SHIMPZ_SCREEN, …) is inherited from the KasmVNC service.
 #
-# SECURITY_ENGINEERING_PLAN.md item 0: this is the BROWSER/desktop container — Chrome, the WebGL
-# spoof, and browser-agent (the ONLY thing `shimpz-brain`, the brain, is allowed to talk to). No gateway,
-# no Caddy/supervisord, no workspace, no Anthropic/OpenAI/Telegram/R2 credential — those all live in
-# `shimpz-brain` now.
+# This is the isolated optional Browser Service container: Chrome, the WebGL spoof, and
+# browser-agent. It has no workspace or model, messaging, storage, or git credentials. The
+# provider-neutral Brain has no direct Browser access.
 
 CHROME_PROFILE="/config/.chrome"
 DOWNLOAD_DIR="/config/downloads"
@@ -49,9 +48,9 @@ start_chrome() {
 
 sleep 3
 
-# --- browser-agent — the ONLY thing `shimpz-brain` (the brain) is allowed to talk to. Exposes click/key/
-# type/scroll/pos/screenshot/navigate/cdp-eval/cdp-rect/cdp-text/upload/downloads over a bearer-
-# token-gated HTTP API on the shimpz-brain<->shimpz-browser internal network. Supervised respawn.
+# --- browser-agent — the Browser Service's only control surface. It exposes click/key/type/scroll/
+# pos/screenshot/navigate/cdp-eval/cdp-rect/cdp-text/upload/downloads over a bearer-token-gated HTTP
+# API on a private Service network. Supervised respawn.
 if [ -x /opt/venv/bin/python ] && [ -f /opt/browser-agent/app.py ]; then
     ( while true; do
         /opt/venv/bin/python /opt/browser-agent/app.py >> "$LOG_DIR/browser-agent.log" 2>&1

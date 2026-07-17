@@ -3,8 +3,8 @@
 The directory is PINNED by policy (DownloadDirectory in shimpz-automation.json, see
 rootfs-browser/etc/opt/chrome/policies/managed/shimpz-automation.json) to a known, fixed path — never
 guessed from Chrome's own default resolution (which depends on $HOME and isn't worth depending on).
-No shared volume with `shimpz-brain`: the brain fetches one file's bytes per call over the API, same
-one-shot-per-call shape as screenshot_client.
+No model-runtime shared volume exists. An authorized Service consumer fetches one file's bytes per
+API call, with the same one-shot-per-call shape as screenshot_client.
 """
 
 from __future__ import annotations

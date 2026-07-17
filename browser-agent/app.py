@@ -1,20 +1,19 @@
 #!/opt/venv/bin/python
-"""browser-agent — the ONLY container that can drive XTEST/CDP/the X11 framebuffer.
+"""browser-agent — the isolated Browser Service boundary for XTEST/CDP/X11 access.
 
-SECURITY_ENGINEERING_PLAN.md item 0: `shimpz-brain` (the brain) never touches DISPLAY/CDP/xdotool
-directly — the X11 socket that Xvnc exposes (svc-kasmvnc's Xvnc has no `-listen tcp`) cannot even
-be reached from another container. `shimpz-brain`'s uiclick/uikey/uitype/uiupload/shimpz-shot/shimpz-cdp/
-chrome-upload/webread wrappers call this restricted, audited HTTP API instead (shimpz-glspoof itself
-stays an autonomous background process inside `shimpz-browser` — it never needs to be called by the
-brain, so it isn't part of this API at all).
+The provider-neutral Brain never receives a Browser token or direct access to DISPLAY, CDP,
+xdotool, the Chrome profile, or this network. An explicitly authorized caller outside the model
+runtime can mediate declared Browser capabilities through this restricted, audited HTTP API.
+shimpz-glspoof remains an autonomous background process inside `shimpz-browser`, so it is not part
+of this API.
 
 Mandatory controls (SECURITY_ENGINEERING_PLAN.md item 0 — the split is not safe without these):
   - Auth fail-closed on EVERY endpoint: `Authorization: Bearer <token>` required; no token via
     query string; no anonymous "just health" endpoint that would itself prove a capability; an
     internal error NEVER becomes an implicit allow (see `_dispatch`'s exception handling below —
     every branch ends in a 4xx/5xx response, never a fallthrough).
-  - No CORS, ever: this API exists for `shimpz-brain`'s own wrapper scripts, never for a page loaded in
-    Chrome. No `Access-Control-Allow-Origin` header is ever sent, at any status code.
+  - No CORS, ever: this API exists for authorized internal Service consumers, never for a page loaded
+    in Chrome. No `Access-Control-Allow-Origin` header is ever sent, at any status code.
   - Zero execution endpoints: this service only automates UI (click/type/scroll/navigate/read
     DOM/screenshot/upload+download BYTES). There is no shell/command/open-arbitrary-file endpoint,
     by design — grep this file for "subprocess"/"os.system": every call site is a fixed xdotool/
@@ -395,7 +394,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     # An empty host is the HTTPServer spelling for IPv4 INADDR_ANY. The service must be reachable
-    # from shimpz-brain on their private container network, rather than only inside this container.
+    # by an explicitly authorized consumer on the private Service network, not just in this container.
     server = ThreadingHTTPServer(("", LISTEN_PORT), Handler)
     print(f"browser-agent listening on :{LISTEN_PORT}", file=sys.stderr)
     server.serve_forever()

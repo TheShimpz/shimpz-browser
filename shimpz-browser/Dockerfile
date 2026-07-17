@@ -3,16 +3,15 @@
 #
 # shimpz-browser — the ONLY container that runs Chrome, the desktop, XTEST, and CDP.
 #
-# SECURITY_ENGINEERING_PLAN.md item 0: the browser opens hostile external content by design (pages,
-# PDFs, OAuth flows, downloads); it used to share a container with Claude Code (the brain), the
-# full workspace, and every remaining credential. Split so an RCE in the renderer/PDF/page lands
-# here — a container with NO workspace, NO Anthropic/OpenAI/Telegram/R2/git credential, and NO way
-# to reach the rest of the stack except through browser-agent's narrow, audited API.
+# The browser opens hostile external content by design (pages, PDFs, and downloads). Keep a
+# renderer/PDF/page RCE inside this optional Service container: it has NO workspace, NO model,
+# messaging, storage, or git credential, and exposes only browser-agent's narrow, audited API.
+# The provider-neutral Brain has no direct Browser network, token, display, or CDP access.
 #
 # Same base as before (KasmVNC web desktop, real Xvnc → genuine headful browser fingerprint).
 # MUST keep CAP_SYS_ADMIN + unconfined seccomp/apparmor at the compose level — Chrome's OWN
 # sandbox needs them; dropping forces --no-sandbox, a regression for a browser that exists to
-# visit untrusted sites. `shimpz-brain` (the brain) is the one that loses those caps, not this container.
+# visit untrusted sites. No model runtime or other workload inherits those capabilities.
 ARG NODE_VERSION=24.18.0
 ARG NODE_SHA256=55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742
 
@@ -94,9 +93,9 @@ RUN sed -i 's/^#\(precedence ::ffff:0:0\/96  100\)/\1/' /etc/gai.conf || \
     echo 'precedence ::ffff:0:0/96  100' >> /etc/gai.conf && \
     grep -q '^precedence ::ffff:0:0/96' /etc/gai.conf
 
-# browser-agent's bearer token — same shared-volume/GID pattern as every other sidecar. Fixed GID,
-# distinct from shimpz-brain's own 1000x-series token GIDs, MUST match the main Dockerfile's own groupadd
-# exactly so `shimpz-brain`'s `abc` can read the token file without being its owner.
+# browser-agent's bearer token — the shared-volume/GID pattern lets an explicitly authorized
+# Service consumer read the token without owning it. The fixed GID MUST match the parent
+# composition's consumer-group mapping.
 ARG SHIMPZ_BROWSERAGENT_TOKEN_GID=10006
 RUN groupadd -g "${SHIMPZ_BROWSERAGENT_TOKEN_GID}" shimpzbrowseragent-token \
     && usermod -aG shimpzbrowseragent-token abc
@@ -112,9 +111,9 @@ RUN gpasswd -d abc sudo 2>/dev/null || true; \
     sed -i 's/^%sudo/# shimpz-disabled: %sudo/' /etc/sudoers
 
 # --- System deps: Chrome, desktop terminal, real-input stack, screenshot toolbelt ---
-# Everything here is Chrome/desktop/automation-specific — NONE of the document-toolbelt/dev-tooling
-# packages the brain needs (those moved to shimpz-brain/Dockerfile; this container never runs Claude Code,
-# ruff, or project scaffolding; its sole Node runtime executes the inherited kclient service).
+# Everything here is Chrome/desktop/automation-specific. This container has no model runtime,
+# general development toolbelt, or project scaffolding; its sole Node runtime executes the inherited
+# kclient service.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl ca-certificates \

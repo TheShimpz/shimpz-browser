@@ -6,7 +6,7 @@
 # BUILD-TIME ownership (the base image's default abc, uid 911) — not this container's runtime
 # PUID/PGID (1000). `autostart`'s own `mkdir -p` is a silent no-op on an already-existing directory,
 # so without this fix every log/profile/download write there fails EACCES forever (confirmed via a
-# real first boot, not assumed). Same idiom as the brain's own `10-shimpz-init.sh`.
+# real first boot, not assumed).
 mkdir -p /config/.chrome /config/downloads /config/logs
 chown -R "${PUID:-1000}:${PGID:-1000}" /config/.chrome /config/downloads /config/logs
 
@@ -20,14 +20,13 @@ sed -i 's/^%sudo/# shimpz-disabled: %sudo/' /etc/sudoers 2>/dev/null || true
 # `.cache` is a build-time artifact too (root-owned `uv` cache from the Dockerfile's own `uv python
 # install`/`uv venv` RUN steps, HOME=/config at build time) — openbox needs to write
 # `.cache/openbox/sessions` at runtime. Narrow chown (not a blanket recursive /config chown every
-# boot, which would get slow once the Chrome profile grows large — same reasoning as `shimpz-brain`'s own
-# targeted-subdirectory pattern in 10-shimpz-init.sh).
+# boot, which would get slow once the Chrome profile grows large).
 mkdir -p /config/.cache
 chown -R "${PUID:-1000}:${PGID:-1000}" /config/.cache
 
 # Same stale-build-time-uid problem on the `shimpz-browseragent-token` volume: browser-agent (running
 # as the remapped abc, PUID) needs WRITE on the directory to create/rotate its token file — group
-# read (shimpzbrowseragent-token, for `shimpz-brain`'s own abc) is unaffected, only the owner uid changes.
+# read through `shimpzbrowseragent-token` is unaffected; only the owner uid changes.
 mkdir -p /run/shimpz-browseragent
 chown "${PUID:-1000}:shimpzbrowseragent-token" /run/shimpz-browseragent
 chmod 750 /run/shimpz-browseragent

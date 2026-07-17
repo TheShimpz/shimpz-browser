@@ -1,10 +1,8 @@
 """The ONLY place XTEST (xdotool against DISPLAY=:1) is driven from.
 
-Faithful port of rootfs/usr/local/bin/shimpz-input's WindMouse-based human motion — same algorithm,
-same jitter/timing, moved server-side because the X11 display here is a Unix domain socket
-(svc-kasmvnc's Xvnc has no `-listen tcp`), unreachable from any other container. `shimpz-brain`'s own
-uiclick/uikey/uitype/shimpz-input wrappers are now thin HTTP clients calling this over the network
-instead of running xdotool locally.
+The X11 display is a Unix domain socket (svc-kasmvnc's Xvnc has no `-listen tcp`) unreachable from
+other containers. browser-agent owns the WindMouse-based human motion implementation and exposes
+only its validated HTTP operations; the provider-neutral Brain has no direct Browser access.
 """
 
 from __future__ import annotations

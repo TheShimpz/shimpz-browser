@@ -1,8 +1,7 @@
 """The ONLY place CDP (127.0.0.1:9222, loopback-only) is spoken from.
 
-Ported from rootfs/opt/shimpz-lib/shimpzcdp.py (shared plumbing) + rootfs/usr/local/bin/shimpz-cdp
-(eval/rect/text) + chrome-upload's DOM.setFileInputFiles call — moved server-side because CDP never
-leaves this container; `shimpz-brain` (the brain) reaches it only through this API, never directly.
+CDP never leaves this container. External callers interact only with browser-agent's validated,
+token-gated Service API; the provider-neutral Brain has no direct Browser access.
 """
 
 from __future__ import annotations

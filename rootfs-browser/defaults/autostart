@@ -2,36 +2,17 @@
 # shellcheck shell=sh  # openbox invokes this file through `sh`; keep the body POSIX-safe.
 # NOTE: openbox launches this via `sh <file>`, so the shebang is ignored and the
 # body must be POSIX-sh safe (no `set -o pipefail`, no bashisms). Container env
-# (IPROYAL_*, SHIMPZ_SCREEN, …) is inherited from the KasmVNC service.
+# (SHIMPZ_SCREEN, …) is inherited from the KasmVNC service.
 #
-# SECURITY_ENGINEERING_PLAN.md item 0: this is the BROWSER/desktop container — Chrome, the proxy
-# relay, the WebGL spoof, and browser-agent (the ONLY thing `shimpz-brain`, the brain, is allowed to talk
-# to). No gateway, no Caddy/supervisord, no workspace, no Anthropic/OpenAI/Telegram/R2 credential —
-# those all live in `shimpz-brain` now.
+# SECURITY_ENGINEERING_PLAN.md item 0: this is the BROWSER/desktop container — Chrome, the WebGL
+# spoof, and browser-agent (the ONLY thing `shimpz-brain`, the brain, is allowed to talk to). No gateway,
+# no Caddy/supervisord, no workspace, no Anthropic/OpenAI/Telegram/R2 credential — those all live in
+# `shimpz-brain` now.
 
 CHROME_PROFILE="/config/.chrome"
 DOWNLOAD_DIR="/config/downloads"
 LOG_DIR="/config/logs"
 mkdir -p "$CHROME_PROFILE" "$DOWNLOAD_DIR" "$LOG_DIR" 2>/dev/null
-
-# --- Proxy relay (IPRoyal ISP Dedicated, São Paulo) ---------------------------------
-# Chrome can't do user:pass auth on --proxy-server, so a local `gost` relay adds the
-# upstream auth: Chrome → 127.0.0.1:13080 → IPRoyal SP residential IP. Routing ALL of
-# Chrome through one sticky SP IP gives a consistent, stealthy fingerprint (the datacenter
-# host IP is the #1 anti-bot tell). Toggle with SHIMPZ_PROXY=off. Supervised respawn.
-PROXY_ARG=""
-if [ "${SHIMPZ_PROXY:-auto}" != "off" ] && [ -n "${IPROYAL_PROXY_USER:-}" ] && [ -n "${IPROYAL_PROXY_IPS:-}" ] && [ -x /usr/local/bin/gost ]; then
-    PIP="${IPROYAL_PROXY_IP:-$(printf '%s' "$IPROYAL_PROXY_IPS" | cut -d, -f1)}"
-    PPORT="${IPROYAL_PROXY_PORT_HTTP:-12323}"
-    ( while true; do
-        /usr/local/bin/gost -L=http://127.0.0.1:13080 \
-            -F="http://${IPROYAL_PROXY_USER}:${IPROYAL_PROXY_PASS}@${PIP}:${PPORT}" \
-            >> "$LOG_DIR/gost.log" 2>&1
-        sleep 3
-      done ) &
-    PROXY_ARG="--proxy-server=http://127.0.0.1:13080"
-    sleep 1
-fi
 
 # --- Real Chrome, headful, maximized, CDP on loopback (flag rationale: RESEARCH.md).
 # This IS the visible desktop. Shimpz drives it via browser-agent (and you can watch/take over).
@@ -50,9 +31,6 @@ start_chrome() {
         --use-gl=angle \
         --use-angle=swiftshader \
         --lang=pt-BR \
-        ${PROXY_ARG:-} \
-        --proxy-bypass-list="127.0.0.1;localhost" \
-        --force-webrtc-ip-handling-policy=disable_non_proxied_udp \
         --no-first-run \
         --no-default-browser-check \
         --disable-session-crashed-bubble \

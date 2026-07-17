@@ -85,13 +85,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 ARG PYTHON_VERSION=3.14.6
 ARG UV_VERSION=0.11.25
-ARG GOST_VERSION=2.12.0
 ARG GOOGLE_CHROME_VERSION=150.0.7871.114-1
 ARG GOOGLE_CHROME_SHA256=0f19e68dca574849632e25229f15853d2beac33fa06498feed43f34628bc2d53
 ARG UV_INSTALL_SHA256=ca2de1bca2913ba30ce88658b6d90a663c627ecac378803aa58084a9adb35a46
-ARG GOST_SHA256=1b6d47e6b850479b23fda484b3a8193c7bc0d5dc38fa5a02b4b4c57a77534d92
 
-# Same IPv6 fix as the main image — Chrome/gost/apt all do outbound HTTPS from here too.
+# Same IPv6 fix as the main image — Chrome and apt both do outbound HTTPS from here too.
 RUN sed -i 's/^#\(precedence ::ffff:0:0\/96  100\)/\1/' /etc/gai.conf || \
     echo 'precedence ::ffff:0:0/96  100' >> /etc/gai.conf && \
     grep -q '^precedence ::ffff:0:0/96' /etc/gai.conf
@@ -129,11 +127,6 @@ RUN apt-get update && \
         # shimpz-shot's screenshot capture (server-side, in screenshot_client.py).
         imagemagick \
         python3-venv && \
-    # gost = local proxy relay. Chrome can't do user:pass on --proxy-server, so gost adds the
-    # upstream auth (Chrome → 127.0.0.1 → IPRoyal SP residential IP). Single Go binary.
-    curl -4 -fsSL "https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_linux_amd64.tar.gz" -o /tmp/gost.tar.gz && \
-    echo "${GOST_SHA256}  /tmp/gost.tar.gz" | sha256sum -c - && \
-    tar -xzf /tmp/gost.tar.gz -C /tmp gost && install -m 0755 /tmp/gost /usr/local/bin/gost && rm -f /tmp/gost /tmp/gost.tar.gz && \
     # The signed APT index retains only the current stable version. Fetch the immutable versioned
     # pool object instead, bind its exact bytes, and verify the embedded package version before install.
     curl --proto '=https' --tlsv1.2 -fsSL \

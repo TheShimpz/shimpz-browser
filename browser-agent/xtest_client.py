@@ -16,6 +16,8 @@ import native_process
 
 os.environ.setdefault("DISPLAY", ":1")
 
+_TYPE_CHUNK_SIZE = 64
+
 
 class XTestError(Exception):
     """An xdotool invocation failed — X down, bad DISPLAY, or an invalid keysym."""
@@ -92,9 +94,10 @@ def move(dx: int, dy: int, jitter: int = 2) -> tuple[int, int]:
     dy += random.randint(-jitter, jitter)
     sx, sy = pos()
     path = _windmouse(sx, sy, dx, dy)
+    commands = []
     for x, y in path:
-        _xdo("mousemove", str(x), str(y))
-        time.sleep(random.uniform(0.004, 0.016))
+        commands.extend(("mousemove", str(x), str(y), "sleep", str(random.uniform(0.004, 0.016))))
+    _xdo(*commands)
     return dx, dy
 
 
@@ -112,11 +115,25 @@ def dclick(dx: int, dy: int) -> None:
 
 
 def type_text(text: str) -> None:
-    for ch in text:
-        _xdo("type", "--clearmodifiers", "--", ch)
-        time.sleep(random.uniform(0.045, 0.16))
-        if random.random() < 0.04:  # occasional human pause
-            time.sleep(random.uniform(0.25, 0.6))
+    commands = []
+    for offset in range(0, len(text), _TYPE_CHUNK_SIZE):
+        chunk = text[offset : offset + _TYPE_CHUNK_SIZE]
+        delays = [random.uniform(0.045, 0.16) for _ in chunk]
+        pause = sum(random.uniform(0.25, 0.6) for _ in chunk if random.random() < 0.04)
+        key_delay_ms = round(1000 * sum(delays[:-1]) / max(1, len(delays) - 1))
+        commands.extend(
+            (
+                "type",
+                "--clearmodifiers",
+                "--delay",
+                str(key_delay_ms),
+                "--",
+                chunk,
+                "sleep",
+                str(delays[-1] + pause),
+            )
+        )
+    _xdo(*commands)
 
 
 def key(combo: str) -> None:

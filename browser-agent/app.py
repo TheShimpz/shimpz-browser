@@ -49,6 +49,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -64,8 +65,49 @@ import validate
 import xtest_client
 
 LISTEN_PORT = int(os.environ.get("SHIMPZ_BROWSERAGENT_PORT", "7074"))
+MAX_HTTP_CONCURRENCY = 32
+HTTP_CONNECTION_TIMEOUT_SECONDS = 10
 
 _token = token_store.ensure_token()
+
+
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """Bound thread creation and expire slow Browser Agent connections."""
+
+    daemon_threads = True
+    request_queue_size = 32
+
+    def __init__(
+        self,
+        *args,
+        max_concurrency: int = MAX_HTTP_CONCURRENCY,
+        connection_timeout: int = HTTP_CONNECTION_TIMEOUT_SECONDS,
+        **kwargs,
+    ) -> None:
+        self._request_slots = threading.BoundedSemaphore(max_concurrency)
+        self._connection_timeout = connection_timeout
+        super().__init__(*args, **kwargs)
+
+    def get_request(self):
+        request, client_address = super().get_request()
+        request.settimeout(self._connection_timeout)
+        return request, client_address
+
+    def process_request(self, request, client_address) -> None:
+        if not self._request_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
 
 
 class ApiError(Exception):
@@ -393,7 +435,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     # An empty host is the HTTPServer spelling for IPv4 INADDR_ANY. The service must be reachable
     # by an explicitly authorized consumer on the private Service network, not just in this container.
-    server = ThreadingHTTPServer(("", LISTEN_PORT), Handler)
+    server = BoundedThreadingHTTPServer(("", LISTEN_PORT), Handler)
     print(f"browser-agent listening on :{LISTEN_PORT}", file=sys.stderr)
     server.serve_forever()
 

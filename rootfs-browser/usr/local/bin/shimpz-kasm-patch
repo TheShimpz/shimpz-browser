@@ -61,14 +61,8 @@ def _patch_kasm():
         print(f"shimpz-kasm-patch: {PAGE} not found — skipping")
         return
     s = Path(PAGE).read_text(encoding="utf-8", errors="ignore")
-    # strip current (comment-wrapped) and legacy (id-based) injections so re-runs update cleanly
+    # Strip the current injection so re-runs update it cleanly.
     s = re.sub(re.escape(START) + ".*?" + re.escape(END), "", s, flags=re.DOTALL)
-    s = re.sub(
-        r"<style id=shimpz-kasm-css>.*?id=shimpz-kasm-js[^>]*>.*?</script>",
-        "",
-        s,
-        flags=re.DOTALL,
-    )
     if ANCHOR not in s:
         print("shimpz-kasm-patch: anchor not found — KasmVNC client changed, skipping")
         return

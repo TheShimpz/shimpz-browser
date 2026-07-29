@@ -2,7 +2,7 @@
 
 Nothing here touches X11/Chrome/the filesystem; it only decides yes/no and returns validated
 values the caller (app.py) turns into xtest_client.py/cdp_client.py/upload_client.py/
-downloads_client.py calls. Same shape as every other driver's own validate.py — the actual
+downloads_client.py calls. Same shape as every other component's own validate.py — the actual
 security boundary, not the client that acts on its output.
 """
 

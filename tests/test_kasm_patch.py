@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PATCHER = ROOT / "rootfs-browser" / "usr" / "local" / "bin" / "shimpz-kasm-patch"
+PATCHER = ROOT / "image" / "rootfs" / "usr" / "local" / "bin" / "shimpz-kasm-patch"
 
 
 def _load_patcher():

@@ -187,7 +187,7 @@ RUN set -eux; \
 ENV PATH="/opt/node24/bin:$PATH"
 
 # --- Overlay browser-only s6 services, autostart, and Chrome policy/spoof assets ---
-COPY rootfs-browser/ /
+COPY image/rootfs/ /
 
 RUN chmod +x /usr/local/bin/shimpz-glspoof /usr/local/bin/shimpz-kasm-patch \
              /defaults/autostart \

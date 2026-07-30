@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-AGENT = Path(__file__).resolve().parents[1] / "browser-agent"
+AGENT = Path(__file__).resolve().parents[1] / "control"
 sys.path.insert(0, str(AGENT))
 
 import native_process

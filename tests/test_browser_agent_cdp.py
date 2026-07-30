@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Battle-test for browser-agent/cdp_client.py — the only place CDP is spoken from now.
+"""Battle-test for control/cdp_client.py — the only place CDP is spoken from now.
 
 This is the server-side successor to what tests/test-shimpz-cdp.py used to cover directly: the
 viewport→desktop pixel math (_screen_xy/_viewport_xy), the injection-safety of the geometry JS
@@ -17,7 +17,7 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "browser-agent"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "control"))
 import cdp_client as cdp
 
 

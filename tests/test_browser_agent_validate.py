@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for browser-agent/validate.py, the allowlist gate before any XTEST/CDP/FS action.
+"""Unit tests for control/validate.py, the allowlist gate before any XTEST/CDP/FS action.
 
 Every check here is a case where a compromised or buggy `shimpz-brain`
 must be refused before it ever reaches xtest_client.py/cdp_client.py/upload_client.py/
@@ -10,7 +10,7 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "browser-agent"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "control"))
 import validate
 
 

@@ -159,10 +159,10 @@ RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" -o /tmp/uv-instal
     rm -rf "${UV_CACHE_DIR}" /config/.cache/uv
 
 WORKDIR /opt/browser-agent
-COPY browser-agent/app.py browser-agent/validate.py browser-agent/audit.py browser-agent/token_store.py \
-     browser-agent/xtest_client.py browser-agent/cdp_client.py browser-agent/screenshot_client.py \
-     browser-agent/upload_client.py browser-agent/downloads_client.py browser-agent/healthcheck.py \
-     browser-agent/native_process.py ./
+COPY control/app.py control/validate.py control/audit.py control/token_store.py \
+     control/xtest_client.py control/cdp_client.py control/screenshot_client.py \
+     control/upload_client.py control/downloads_client.py control/healthcheck.py \
+     control/native_process.py ./
 
 # Replace the inherited Node 18 runtime without carrying a compiler or package manager forward.
 # kclient's rebuilt addon resolves Node symbols from the executable and no longer needs libnode109.

@@ -55,14 +55,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-import audit
 import cdp_client
 import downloads_client
 import screenshot_client
-import token_store
 import upload_client
-import validate
 import xtest_client
+
+import audit
+import token_store
+import validate
 
 LISTEN_PORT = int(os.environ.get("SHIMPZ_BROWSERAGENT_PORT", "7074"))
 MAX_HTTP_CONCURRENCY = 32

@@ -6,7 +6,7 @@
   overlay. Browser is not a Service and is never a default Brain or Team dependency.
 - A caller outside the Brain must supply explicit current capability and authority; Browser never grants itself
   broader network, kernel, display, upload, download, or native-process access.
-- Read the canonical [Shimpz architecture](https://github.com/TheShimpz/shimpz/blob/main/docs/ARCHITECTURE.md)
+- Read the canonical [Shimpz architecture](https://github.com/TheShimpz/shimpz/blob/main/.context/ARCHITECTURE.md)
   before changing product vocabulary, authority, protocols, runtime topology, or source placement.
 
 ## Delivery and engineering

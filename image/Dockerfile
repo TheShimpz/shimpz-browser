@@ -18,7 +18,7 @@ ARG NODE_SHA256=d6c664df3f3f61458e8c277585571328522d705166723a7c7823a9253a4d15a0
 FROM lscr.io/linuxserver/baseimage-kasmvnc:ubuntunoble@sha256:c6d902c207d6e4a66ca41ce36dda549cd58a5bc8d353468b24b0cf780eb528c8 AS shimpz-kasm-base
 ARG SOURCE_DATE_EPOCH=0
 
-ARG UBUNTU_SNAPSHOT=20260623T000000Z
+ARG UBUNTU_SNAPSHOT=20260731T000000Z
 RUN set -eux; \
     find /etc/apt/sources.list.d -maxdepth 1 -type f \( -name '*.list' -o -name '*.sources' \) -delete; \
     printf '%s\n' \
@@ -84,8 +84,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 ARG PYTHON_VERSION=3.14.6
 ARG UV_VERSION=0.12.1
-ARG GOOGLE_CHROME_VERSION=150.0.7871.114-1
-ARG GOOGLE_CHROME_SHA256=0f19e68dca574849632e25229f15853d2beac33fa06498feed43f34628bc2d53
+ARG GOOGLE_CHROME_VERSION=151.0.7922.71-1
+ARG GOOGLE_CHROME_SHA256=c86cafc697ecdb88259312cef47e464d1278643610500a7c9104e6bb1af3ba5c
 ARG UV_INSTALL_SHA256=d3f5412d38c99f9d024901843bf98206f0d2c6dbe64df40d0b740e2751ca62c1
 
 # Same IPv6 fix as the main image — Chrome and apt both do outbound HTTPS from here too.

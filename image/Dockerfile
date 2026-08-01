@@ -83,10 +83,10 @@ LABEL org.opencontainers.image.title="shimpz-browser" \
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG PYTHON_VERSION=3.14.6
-ARG UV_VERSION=0.11.25
+ARG UV_VERSION=0.12.1
 ARG GOOGLE_CHROME_VERSION=150.0.7871.114-1
 ARG GOOGLE_CHROME_SHA256=0f19e68dca574849632e25229f15853d2beac33fa06498feed43f34628bc2d53
-ARG UV_INSTALL_SHA256=ca2de1bca2913ba30ce88658b6d90a663c627ecac378803aa58084a9adb35a46
+ARG UV_INSTALL_SHA256=d3f5412d38c99f9d024901843bf98206f0d2c6dbe64df40d0b740e2751ca62c1
 
 # Same IPv6 fix as the main image — Chrome and apt both do outbound HTTPS from here too.
 RUN sed -i 's/^#\(precedence ::ffff:0:0\/96  100\)/\1/' /etc/gai.conf || \

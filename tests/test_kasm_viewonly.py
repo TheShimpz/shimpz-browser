@@ -13,7 +13,7 @@ from pathlib import Path
 
 from test_kasm_patch import PATCH
 
-NODE_IMAGE = "node:24-slim@sha256:b31e7a42fdf8b8aa5f5ed477c72d694301273f1069c5a2f71d53c6482e99a2fc"
+NODE_IMAGE = "node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"
 IFRAME = '<iframe class="vnc" src="vnc/index.html?autoconnect=1&resize=remote&show_control_bar=true"></iframe>'
 BASE = "vnc/index.html?autoconnect=1&resize=remote&show_control_bar=true"
 

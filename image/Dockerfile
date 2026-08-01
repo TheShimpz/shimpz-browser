@@ -12,8 +12,8 @@
 # MUST keep CAP_SYS_ADMIN + unconfined seccomp/apparmor at the compose level — Chrome's OWN
 # sandbox needs them; dropping forces --no-sandbox, a regression for a browser that exists to
 # visit untrusted sites. No model runtime or other workload inherits those capabilities.
-ARG NODE_VERSION=24.18.0
-ARG NODE_SHA256=55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742
+ARG NODE_VERSION=24.18.1
+ARG NODE_SHA256=d6c664df3f3f61458e8c277585571328522d705166723a7c7823a9253a4d15a0
 
 FROM lscr.io/linuxserver/baseimage-kasmvnc:ubuntunoble@sha256:c6d902c207d6e4a66ca41ce36dda549cd58a5bc8d353468b24b0cf780eb528c8 AS shimpz-kasm-base
 ARG SOURCE_DATE_EPOCH=0

@@ -249,6 +249,34 @@ def _downloads_fetch(name: str) -> bytes:
     return data
 
 
+_AUDITED_ROUTES = frozenset(
+    {
+        "/v1/browser/cdp/eval",
+        "/v1/browser/cdp/rect",
+        "/v1/browser/cdp/text",
+        "/v1/browser/click",
+        "/v1/browser/dclick",
+        "/v1/browser/downloads/fetch",
+        "/v1/browser/downloads/list",
+        "/v1/browser/key",
+        "/v1/browser/move",
+        "/v1/browser/navigate",
+        "/v1/browser/pos",
+        "/v1/browser/render",
+        "/v1/browser/screenshot",
+        "/v1/browser/scroll",
+        "/v1/browser/type",
+        "/v1/browser/upload",
+    }
+)
+
+
+def _audit_route(target: str) -> str:
+    """Classify a request target without retaining query values or unknown paths."""
+    path = urlsplit(target).path
+    return f"route:{path}" if path in _AUDITED_ROUTES else "unknown-route"
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "browser-agent/1.0"
 
@@ -284,20 +312,33 @@ class Handler(BaseHTTPRequestHandler):
         return payload
 
     def _dispatch(self, method: str) -> None:
+        route = _audit_route(self.path)
         if not self._authed():
-            audit.log("auth", self.path, result="denied")
+            audit.log("auth", route, result="denied", reason_code="api_error", status=HTTPStatus.FORBIDDEN)
             self._send_json(HTTPStatus.FORBIDDEN, {"error": "invalid or missing bearer token"})
             return
         try:
             self._route(method)
         except ApiError as exc:
-            audit.log(method.lower(), self.path, result="denied", reason=exc.message)
+            audit.log(method.lower(), route, result="denied", reason_code="api_error", status=exc.status)
             self._send_json(exc.status, {"error": exc.message})
         except validate.ValidationError as exc:
-            audit.log(method.lower(), self.path, result="denied", reason=str(exc))
+            audit.log(
+                method.lower(),
+                route,
+                result="denied",
+                reason_code="validation_error",
+                status=HTTPStatus.BAD_REQUEST,
+            )
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         except (xtest_client.XTestError, cdp_client.CDPError, screenshot_client.ScreenshotError) as exc:
-            audit.log(method.lower(), self.path, result="error", reason=str(exc))
+            audit.log(
+                method.lower(),
+                route,
+                result="error",
+                reason_code="upstream_error",
+                status=HTTPStatus.BAD_GATEWAY,
+            )
             self._send_json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         except (
             OSError,
@@ -307,7 +348,13 @@ class Handler(BaseHTTPRequestHandler):
             LookupError,
             cdp_client.websockets.WebSocketException,
         ) as exc:
-            audit.log(method.lower(), self.path, result="error", reason=str(exc))
+            audit.log(
+                method.lower(),
+                route,
+                result="error",
+                reason_code="internal_error",
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 
     def _route(self, method: str) -> None:
@@ -346,7 +393,7 @@ class Handler(BaseHTTPRequestHandler):
             trace = audit.log("key", body.get("combo", "?"), result="ok")
         elif path == "/v1/browser/type":
             result = _type(body)
-            trace = audit.log("type", "?", result="ok", typed_len=result["typed_len"])
+            trace = audit.log("type", "input", result="ok", typed_len=result["typed_len"])
         else:
             result = _scroll(body)
             trace = audit.log("scroll", body.get("direction", "?"), result="ok")
@@ -359,25 +406,35 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/v1/browser/navigate":
             body = self._body()
             result = _navigate(body)
-            trace = audit.log("navigate", body.get("url", "?"), result="ok")
+            trace = audit.log("navigate", audit.url_subject(body.get("url", "")), result="ok")
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
         if path == "/v1/browser/render":
             body = self._body()
             result = _render(body)
-            trace = audit.log("render", body.get("url", "?"), result="ok", html_len=len(result["html"]))
+            trace = audit.log(
+                "render",
+                audit.url_subject(body.get("url", "")),
+                result="ok",
+                html_len=len(result["html"]),
+            )
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
         if path == "/v1/browser/cdp/eval":
             body = self._body()
             result = _cdp_eval(body)
-            trace = audit.log("cdp.eval", "?", result="ok")
+            trace = audit.log("cdp.eval", "expression", result="ok")
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
         if path == "/v1/browser/upload":
             body = self._body()
             result = _upload(body)
-            trace = audit.log("upload", body.get("filename", "?"), result="ok", mode=result["mode"])
+            trace = audit.log(
+                "upload",
+                audit.opaque_subject("filename", body.get("filename", "")),
+                result="ok",
+                mode=result["mode"],
+            )
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
         raise ApiError(HTTPStatus.NOT_FOUND, f"no route for POST {path}")
@@ -398,25 +455,35 @@ class Handler(BaseHTTPRequestHandler):
             selector = validate.validate_selector(query.get("selector", [""])[0])
             url_hint = validate.validate_url_hint((query.get("url_hint") or [None])[0])
             result = _cdp_rect(selector, url_hint)
-            trace = audit.log("cdp.rect", selector, result="ok")
+            trace = audit.log("cdp.rect", audit.opaque_subject("selector", selector), result="ok")
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
         if path == "/v1/browser/cdp/text":
             selector = validate.validate_selector(query.get("selector", [""])[0])
             url_hint = validate.validate_url_hint((query.get("url_hint") or [None])[0])
             result = _cdp_text(selector, url_hint)
-            trace = audit.log("cdp.text", selector, result="ok", text_len=len(result["text"]))
+            trace = audit.log(
+                "cdp.text",
+                audit.opaque_subject("selector", selector),
+                result="ok",
+                text_len=len(result["text"]),
+            )
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
         if path == "/v1/browser/downloads/list":
             result = _downloads_list()
-            audit.log("downloads.list", "?", result="ok", count=len(result["downloads"]))
+            audit.log("downloads.list", "catalog", result="ok", count=len(result["downloads"]))
             self._send_json(HTTPStatus.OK, result)
             return
         if path == "/v1/browser/downloads/fetch":
             name = query.get("name", [""])[0]
             data = _downloads_fetch(name)
-            audit.log("downloads.fetch", name, result="ok", byte_count=len(data))
+            audit.log(
+                "downloads.fetch",
+                audit.opaque_subject("filename", name),
+                result="ok",
+                byte_count=len(data),
+            )
             self._send_bytes(HTTPStatus.OK, "application/octet-stream", data)
             return
         raise ApiError(HTTPStatus.NOT_FOUND, f"no route for GET {path}")

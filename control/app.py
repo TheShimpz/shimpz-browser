@@ -50,6 +50,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -68,6 +69,22 @@ import validate
 LISTEN_PORT = int(os.environ.get("SHIMPZ_BROWSERAGENT_PORT", "7074"))
 MAX_HTTP_CONCURRENCY = 32
 HTTP_CONNECTION_TIMEOUT_SECONDS = 10
+BODY_READ_DEADLINE_SECONDS = 10
+BODY_READ_CHUNK_BYTES = 64 * 1024
+STANDARD_BODY_MAX_BYTES = 256 * 1024
+UPLOAD_BODY_MAX_BYTES = 72 * 1024 * 1024
+_POST_BODY_LIMITS = {
+    "/v1/browser/cdp/eval": STANDARD_BODY_MAX_BYTES,
+    "/v1/browser/click": STANDARD_BODY_MAX_BYTES,
+    "/v1/browser/dclick": STANDARD_BODY_MAX_BYTES,
+    "/v1/browser/key": STANDARD_BODY_MAX_BYTES,
+    "/v1/browser/move": STANDARD_BODY_MAX_BYTES,
+    "/v1/browser/navigate": STANDARD_BODY_MAX_BYTES,
+    "/v1/browser/render": STANDARD_BODY_MAX_BYTES,
+    "/v1/browser/scroll": STANDARD_BODY_MAX_BYTES,
+    "/v1/browser/type": STANDARD_BODY_MAX_BYTES,
+    "/v1/browser/upload": UPLOAD_BODY_MAX_BYTES,
+}
 
 _token = token_store.ensure_token()
 
@@ -298,11 +315,35 @@ class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status: HTTPStatus, payload: object) -> None:
         self._send_bytes(status, "application/json", json.dumps(payload).encode())
 
-    def _body(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0") or "0")
+    def _body(self, maximum: int) -> dict:
+        lengths = self.headers.get_all("Content-Length", [])
+        if not lengths:
+            raise ApiError(HTTPStatus.LENGTH_REQUIRED, "Content-Length is required")
+        if len(lengths) != 1 or not lengths[0].isdecimal() or self.headers.get("Transfer-Encoding") is not None:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "request framing is invalid")
+        length = int(lengths[0])
+        if length > maximum:
+            raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request body is too large")
         if length == 0:
             return {}
-        raw = self.rfile.read(length)
+        deadline = time.monotonic() + BODY_READ_DEADLINE_SECONDS
+        remaining = length
+        raw = bytearray()
+        try:
+            while remaining:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    raise ApiError(HTTPStatus.REQUEST_TIMEOUT, "request body read timed out")
+                self.connection.settimeout(timeout)
+                chunk = self.rfile.read(min(remaining, BODY_READ_CHUNK_BYTES))
+                if not chunk:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "request body is incomplete")
+                raw.extend(chunk)
+                remaining -= len(chunk)
+        except TimeoutError as exc:
+            raise ApiError(HTTPStatus.REQUEST_TIMEOUT, "request body read timed out") from exc
+        finally:
+            self.connection.settimeout(HTTP_CONNECTION_TIMEOUT_SECONDS)
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as exc:
@@ -368,7 +409,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         raise ApiError(HTTPStatus.NOT_FOUND, f"no route for {method} {path}")
 
-    def _route_input_post(self, path: str) -> bool:
+    def _route_input_post(self, path: str, body: dict) -> bool:
         if path not in {
             "/v1/browser/move",
             "/v1/browser/click",
@@ -378,7 +419,6 @@ class Handler(BaseHTTPRequestHandler):
             "/v1/browser/scroll",
         }:
             return False
-        body = self._body()
         if path == "/v1/browser/move":
             result = _move(body)
             trace = audit.log("move", f"{body.get('x')},{body.get('y')}", result="ok")
@@ -401,16 +441,18 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _route_post(self, path: str) -> None:
-        if self._route_input_post(path):
+        maximum = _POST_BODY_LIMITS.get(path)
+        if maximum is None:
+            raise ApiError(HTTPStatus.NOT_FOUND, f"no route for POST {path}")
+        body = self._body(maximum)
+        if self._route_input_post(path, body):
             return
         if path == "/v1/browser/navigate":
-            body = self._body()
             result = _navigate(body)
             trace = audit.log("navigate", audit.url_subject(body.get("url", "")), result="ok")
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
         if path == "/v1/browser/render":
-            body = self._body()
             result = _render(body)
             trace = audit.log(
                 "render",
@@ -421,13 +463,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
         if path == "/v1/browser/cdp/eval":
-            body = self._body()
             result = _cdp_eval(body)
             trace = audit.log("cdp.eval", "expression", result="ok")
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
         if path == "/v1/browser/upload":
-            body = self._body()
             result = _upload(body)
             trace = audit.log(
                 "upload",
@@ -437,7 +477,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
             return
-        raise ApiError(HTTPStatus.NOT_FOUND, f"no route for POST {path}")
+        raise AssertionError(f"POST body limit exists without a route: {path}")
 
     def _route_get(self, path: str, query: dict[str, list[str]]) -> None:
         if path == "/v1/browser/pos":

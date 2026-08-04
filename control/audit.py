@@ -50,7 +50,7 @@ def url_subject(value: object) -> str:
     try:
         parsed = urlsplit(text)
         host = (parsed.hostname or "").encode("idna").decode("ascii").lower()
-    except (UnicodeError, ValueError):
+    except UnicodeError, ValueError:
         return opaque_subject("url", text)
     subject = f"{parsed.scheme.lower()}://{host}"
     if parsed.scheme.lower() not in {"http", "https"} or _SAFE_SUBJECT.fullmatch(subject) is None:

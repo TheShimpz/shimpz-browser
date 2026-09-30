@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import io
 import json
+import socket
 import sys
+import threading
+import time
 import unittest
 from email.message import Message
 from http import HTTPStatus
@@ -80,9 +83,53 @@ class BrowserBodyTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, HTTPStatus.REQUEST_TIMEOUT)
         expired.connection.settimeout.assert_called_once_with(app.HTTP_CONNECTION_TIMEOUT_SECONDS)
 
+    def test_body_deadline_is_absolute_while_bytes_trickle_within_each_socket_timeout(self) -> None:
+        server, client = socket.socketpair()
+        self.addCleanup(server.close)
+        self.addCleanup(client.close)
+        payload = b'{"text":"trickled"}'
+        stop = threading.Event()
+
+        def trickle() -> None:
+            for byte in payload:
+                if stop.wait(0.03):
+                    return
+                client.sendall(bytes((byte,)))
+
+        writer = threading.Thread(target=trickle)
+        writer.start()
+        self.addCleanup(writer.join)
+        self.addCleanup(stop.set)
+        route = object.__new__(app.Handler)
+        headers = Message()
+        headers.add_header("Content-Length", str(len(payload)))
+        route.headers = headers
+        route.connection = server
+        route.rfile = server.makefile("rb")
+        self.addCleanup(route.rfile.close)
+
+        started = time.monotonic()
+        with (
+            mock.patch.object(app, "BODY_READ_DEADLINE_SECONDS", 0.1),
+            self.assertRaises(app.ApiError) as caught,
+        ):
+            route._body(app.STANDARD_BODY_MAX_BYTES)
+
+        self.assertEqual(caught.exception.status, HTTPStatus.REQUEST_TIMEOUT)
+        self.assertLess(time.monotonic() - started, 0.3)
+
+    def test_body_completed_after_the_deadline_is_refused(self) -> None:
+        late = body_handler(b'{"x":1}', "7")
+        with (
+            mock.patch.object(app.time, "monotonic", side_effect=(0.0, 1.0, 11.0)),
+            self.assertRaises(app.ApiError) as caught,
+        ):
+            late._body(app.STANDARD_BODY_MAX_BYTES)
+        self.assertEqual(caught.exception.status, HTTPStatus.REQUEST_TIMEOUT)
+
     def test_body_parses_with_an_absolute_socket_deadline(self) -> None:
         route = body_handler(b'{"x":1}', "7")
-        with mock.patch.object(app.time, "monotonic", side_effect=(5.0, 6.0)):
+        with mock.patch.object(app.time, "monotonic", side_effect=(5.0, 6.0, 7.0)):
             self.assertEqual(route._body(app.STANDARD_BODY_MAX_BYTES), {"x": 1})
 
         self.assertEqual(

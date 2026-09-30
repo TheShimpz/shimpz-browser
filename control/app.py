@@ -314,6 +314,33 @@ class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status: HTTPStatus, payload: object) -> None:
         self._send_bytes(status, "application/json", json.dumps(payload).encode())
 
+    def _read_body_bytes(self, length: int) -> bytearray:
+        """Read exactly `length` body bytes within one absolute deadline.
+
+        read1() performs at most one socket receive per call, and each receive waits only for the
+        deadline's remainder, so bytes trickling inside every socket timeout cannot stretch the
+        read past the deadline. Completion is re-checked against the deadline before acceptance.
+        """
+        deadline = time.monotonic() + BODY_READ_DEADLINE_SECONDS
+        raw = bytearray()
+        try:
+            while len(raw) < length:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    raise ApiError(HTTPStatus.REQUEST_TIMEOUT, "request body read timed out")
+                self.connection.settimeout(timeout)
+                chunk = self.rfile.read1(min(length - len(raw), BODY_READ_CHUNK_BYTES))
+                if not chunk:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "request body is incomplete")
+                raw.extend(chunk)
+        except TimeoutError as exc:
+            raise ApiError(HTTPStatus.REQUEST_TIMEOUT, "request body read timed out") from exc
+        finally:
+            self.connection.settimeout(HTTP_CONNECTION_TIMEOUT_SECONDS)
+        if time.monotonic() > deadline:
+            raise ApiError(HTTPStatus.REQUEST_TIMEOUT, "request body read timed out")
+        return raw
+
     def _body(self, maximum: int) -> dict:
         lengths = self.headers.get_all("Content-Length", [])
         if not lengths:
@@ -325,24 +352,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request body is too large")
         if length == 0:
             return {}
-        deadline = time.monotonic() + BODY_READ_DEADLINE_SECONDS
-        remaining = length
-        raw = bytearray()
-        try:
-            while remaining:
-                timeout = deadline - time.monotonic()
-                if timeout <= 0:
-                    raise ApiError(HTTPStatus.REQUEST_TIMEOUT, "request body read timed out")
-                self.connection.settimeout(timeout)
-                chunk = self.rfile.read(min(remaining, BODY_READ_CHUNK_BYTES))
-                if not chunk:
-                    raise ApiError(HTTPStatus.BAD_REQUEST, "request body is incomplete")
-                raw.extend(chunk)
-                remaining -= len(chunk)
-        except TimeoutError as exc:
-            raise ApiError(HTTPStatus.REQUEST_TIMEOUT, "request body read timed out") from exc
-        finally:
-            self.connection.settimeout(HTTP_CONNECTION_TIMEOUT_SECONDS)
+        raw = self._read_body_bytes(length)
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as exc:

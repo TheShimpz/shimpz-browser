@@ -64,7 +64,7 @@ def upload_native(path: str, title_regex: str = DEFAULT_DIALOG_RE) -> str:
             break
         time.sleep(0.2)
     if not wid:
-        raise UploadError(f"no file dialog found (regex: {title_regex})")
+        raise UploadError("no file dialog found")
 
     _run("windowactivate", "--sync", wid)
     time.sleep(0.2)

@@ -112,6 +112,26 @@ class BrowserAuditTests(unittest.TestCase):
         route._send_json.assert_called_once_with(HTTPStatus.BAD_GATEWAY, {"error": "xdotool timed out after 30s"})
         self.assertIn('"reason_code": "upstream_error"', audit.AUDIT_PATH.read_text(encoding="utf-8"))
 
+    def test_failed_native_operations_never_return_typed_text_or_tool_output(self) -> None:
+        failed = mock.Mock(returncode=1, stdout="typed-secret", stderr="typed-secret")
+        route = handler()
+        route.path = "/v1/browser/type"
+        route._authed = mock.Mock(return_value=True)
+        route._body = mock.Mock(return_value={"text": "typed-secret"})
+        with mock.patch.object(app.xtest_client.native_process, "run_xdotool", return_value=failed):
+            route._dispatch("POST")
+        route._send_json.assert_called_once_with(HTTPStatus.BAD_GATEWAY, {"error": "xdotool type failed (rc=1)"})
+
+        route = handler()
+        route.path = "/v1/browser/screenshot"
+        route._authed = mock.Mock(return_value=True)
+        with mock.patch.object(app.screenshot_client.native_process, "capture_root_window", return_value=failed):
+            route._dispatch("GET")
+        route._send_json.assert_called_once_with(
+            HTTPStatus.BAD_GATEWAY, {"error": "could not capture the screen (rc=1)"}
+        )
+        self.assertNotIn("typed-secret", audit.AUDIT_PATH.read_text(encoding="utf-8"))
+
     def test_screenshot_route_audits_only_the_payload_size(self) -> None:
         route = handler()
         png = b"\x89PNG-private-image"

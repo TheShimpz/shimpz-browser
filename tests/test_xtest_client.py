@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -63,6 +64,35 @@ class XTestClientTests(unittest.TestCase):
 
         run.assert_not_called()
         sleep.assert_not_called()
+
+
+class XTestErrorRedactionTests(unittest.TestCase):
+    def test_failed_typing_never_returns_typed_text_argv_or_stderr(self) -> None:
+        failed = subprocess.CompletedProcess([], 1, "stdout typed-secret", "stderr typed-secret")
+        with (
+            mock.patch.object(xtest_client.native_process, "run_xdotool", return_value=failed),
+            self.assertRaises(xtest_client.XTestError) as caught,
+        ):
+            xtest_client.type_text("typed-secret")
+
+        self.assertEqual(str(caught.exception), "xdotool type failed (rc=1)")
+
+    def test_failed_pointer_lookups_return_only_closed_messages(self) -> None:
+        cases = (
+            (subprocess.CompletedProcess([], 1, "", "stderr-detail"), "xdotool getmouselocation failed (rc=1)"),
+            (
+                subprocess.CompletedProcess([], 0, "SCREEN=stdout-detail\n", ""),
+                "xdotool getmouselocation returned no pointer position",
+            ),
+        )
+        for result, message in cases:
+            with (
+                self.subTest(message=message),
+                mock.patch.object(xtest_client.native_process, "run_xdotool", return_value=result),
+                self.assertRaises(xtest_client.XTestError) as caught,
+            ):
+                xtest_client.pos()
+            self.assertEqual(str(caught.exception), message)
 
 
 if __name__ == "__main__":

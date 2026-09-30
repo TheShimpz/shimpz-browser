@@ -29,9 +29,7 @@ def capture() -> bytes:
     try:
         result = native_process.capture_root_window(str(out_path))
         if result.returncode != 0 or not out_path.exists() or out_path.stat().st_size == 0:
-            raise ScreenshotError(
-                f"could not capture the screen (DISPLAY={os.environ.get('DISPLAY')}): {(result.stderr or '').strip()}"
-            )
+            raise ScreenshotError(f"could not capture the screen (rc={result.returncode})")
         return out_path.read_bytes()
     finally:
         out_path.unlink(missing_ok=True)

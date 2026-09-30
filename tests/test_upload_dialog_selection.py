@@ -45,5 +45,17 @@ class DialogSelectionTests(unittest.TestCase):
             self.assertIsNone(upload_client._find_dialog("Open File"))
 
 
+class NativeUploadErrorTests(unittest.TestCase):
+    def test_missing_dialog_error_never_echoes_the_caller_pattern(self) -> None:
+        with (
+            mock.patch.object(upload_client, "_find_dialog", return_value=None),
+            mock.patch.object(upload_client.time, "sleep"),
+            self.assertRaises(upload_client.UploadError) as caught,
+        ):
+            upload_client.upload_native("upload-report.pdf", "caller-secret-pattern")
+
+        self.assertEqual(str(caught.exception), "no file dialog found")
+
+
 if __name__ == "__main__":
     unittest.main()

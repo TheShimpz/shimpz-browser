@@ -20,28 +20,33 @@ _TYPE_CHUNK_SIZE = 64
 
 
 class XTestError(Exception):
-    """An xdotool invocation failed — X down, bad DISPLAY, or an invalid keysym."""
+    """An xdotool invocation failed — X down, bad DISPLAY, or an invalid keysym.
+
+    The message names only the fixed xdotool operation and exit status. It never carries argv
+    (typed text, coordinates), stdout, or stderr, because the HTTP boundary returns it verbatim.
+    """
 
 
-def _xdo(*a: str) -> None:
+def _xdo(operation: str, *arguments: str) -> None:
     # FAIL-FAST: a non-zero xdotool exit previously meant "reported success but did nothing" — the
-    # exact failure mode this real-input tool exists to eliminate. Surface xdotool's own stderr.
-    result = native_process.run_xdotool(*a)
+    # exact failure mode this real-input tool exists to eliminate. `operation` is always a literal
+    # xdotool command name from this module, never caller content.
+    result = native_process.run_xdotool(operation, *arguments)
     if result.returncode != 0:
-        raise XTestError(f"xdotool {' '.join(a)} failed (rc={result.returncode}): {(result.stderr or '').strip()}")
+        raise XTestError(f"xdotool {operation} failed (rc={result.returncode})")
 
 
 def pos() -> tuple[int, int]:
     result = native_process.run_xdotool("getmouselocation", "--shell")
     if result.returncode != 0:
-        raise XTestError(f"xdotool getmouselocation failed (rc={result.returncode}): {(result.stderr or '').strip()}")
+        raise XTestError(f"xdotool getmouselocation failed (rc={result.returncode})")
     parsed = {}
     for line in result.stdout.splitlines():
         if "=" in line:
             k, v = line.split("=", 1)
             parsed[k] = v.strip()
     if "X" not in parsed or "Y" not in parsed:
-        raise XTestError(f"xdotool getmouselocation gave no X/Y: {result.stdout!r}")
+        raise XTestError("xdotool getmouselocation returned no pointer position")
     return int(parsed["X"]), int(parsed["Y"])
 
 

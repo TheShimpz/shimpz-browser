@@ -203,14 +203,14 @@ RUN /usr/local/bin/shimpz-kasm-patch || true
 # Pre-create + own every path a NAMED VOLUME will be mounted onto. This chown is BUILD-TIME only —
 # a fresh named volume gets populated from this image layer, carrying this build-time ownership
 # (the base image's own abc, uid 911), NOT the runtime PUID/PGID remap (confirmed live: 911:1001 on
-# a first real boot). `custom-cont-init.d/10-shimpz-browser-init.sh` re-chowns these same 3 `/config`
+# a first real boot). `custom-cont-init.d/10-shimpz-browser-init.sh` re-chowns these same 2 `/config`
 # subdirectories as ROOT, at container start, AFTER the PUID/PGID remap — that's the fix that
-# actually matters for the volume-backed downloads/.chrome/logs paths; this block only matters for
+# actually matters for the volume-backed downloads/.chrome paths; this block only matters for
 # `/run/shimpz-browseragent` (a separate volume, but not user-data — token perms are fine either way)
 # and the (rare) ephemeral-no-volume case.
-RUN mkdir -p /run/shimpz-browseragent /var/log/browser-agent /config/downloads /config/.chrome /config/logs \
+RUN mkdir -p /run/shimpz-browseragent /var/log/browser-agent /config/downloads /config/.chrome \
     && chown abc:shimpzbrowseragent-token /run/shimpz-browseragent && chmod 750 /run/shimpz-browseragent \
-    && chown -R abc:abc /var/log/browser-agent /config/downloads /config/.chrome /config/logs
+    && chown -R abc:abc /var/log/browser-agent /config/downloads /config/.chrome
 
 # KasmVNC desktop: 3000 = HTTP (behind Cloudflare Tunnel), 3001 = HTTPS (direct).
 # 9222 = Chrome CDP (loopback only). 7074 = browser-agent (internal network only, never published).

@@ -8,10 +8,13 @@
 # browser-agent. It has no workspace or model, messaging, storage, or git credentials. The
 # provider-neutral Brain has no direct Browser access.
 
+#
+# Supervised process output is inherited from openbox and reaches the container log, which the
+# Compose logging options bound and rotate. Never redirect it into an unrotated file on /config.
+
 CHROME_PROFILE="/config/.chrome"
 DOWNLOAD_DIR="/config/downloads"
-LOG_DIR="/config/logs"
-mkdir -p "$CHROME_PROFILE" "$DOWNLOAD_DIR" "$LOG_DIR" 2>/dev/null
+mkdir -p "$CHROME_PROFILE" "$DOWNLOAD_DIR" 2>/dev/null
 
 # --- Real Chrome, headful, maximized, CDP on loopback (flag rationale: RESEARCH.md).
 # This IS the visible desktop. Shimpz drives it via browser-agent (and you can watch/take over).
@@ -44,7 +47,7 @@ start_chrome() {
 # WebGL renderer spoof: the only working WebGL backend here is ANGLE/SwiftShader, whose renderer
 # string is flagged on sight — shimpz-glspoof injects a plausible Mesa/Intel string into every page via
 # CDP (RESEARCH.md §2). Supervised respawn; waits for Chrome's CDP to come up on its own.
-( while true; do /usr/local/bin/shimpz-glspoof >> "$LOG_DIR/glspoof.log" 2>&1; sleep 3; done ) &
+( while true; do /usr/local/bin/shimpz-glspoof; sleep 3; done ) &
 
 sleep 3
 
@@ -53,7 +56,7 @@ sleep 3
 # API on a private Service network. Supervised respawn.
 if [ -x /opt/venv/bin/python ] && [ -f /opt/browser-agent/app.py ]; then
     ( while true; do
-        /opt/venv/bin/python /opt/browser-agent/app.py >> "$LOG_DIR/browser-agent.log" 2>&1
+        /opt/venv/bin/python /opt/browser-agent/app.py
         sleep 3
       done ) &
 fi

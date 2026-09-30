@@ -7,8 +7,13 @@
 # PUID/PGID (1000). `autostart`'s own `mkdir -p` is a silent no-op on an already-existing directory,
 # so without this fix every log/profile/download write there fails EACCES forever (confirmed via a
 # real first boot, not assumed).
-mkdir -p /config/.chrome /config/downloads /config/logs
-chown -R "${PUID:-1000}:${PGID:-1000}" /config/.chrome /config/downloads /config/logs
+mkdir -p /config/.chrome /config/downloads
+chown -R "${PUID:-1000}:${PGID:-1000}" /config/.chrome /config/downloads
+
+# The base image copies /defaults/autostart into the persistent volume only when it is missing, so
+# an image update would otherwise keep running the first boot's copy. The session script is
+# image-owned: install the current one on every start.
+install -D -m 0755 -o "${PUID:-1000}" -g "${PGID:-1000}" /defaults/autostart /config/.config/openbox/autostart
 
 # SECURITY (re-assert the Dockerfile hardening at boot): keep `abc` OUT of `sudo`/`docker`. This
 # container has CAP_SYS_ADMIN + unconfined seccomp/apparmor for Chrome's sandbox, so an abc→root here

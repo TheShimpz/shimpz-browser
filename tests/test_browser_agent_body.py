@@ -99,6 +99,9 @@ class BrowserBodyTests(unittest.TestCase):
         route = body_handler(payload, str(len(payload)))
         self.assertEqual(route._body(app.STANDARD_BODY_MAX_BYTES), {"text": text})
 
+    def test_cdp_message_bound_matches_the_largest_admitted_json_document(self) -> None:
+        self.assertEqual(app.cdp_client.MESSAGE_MAX_BYTES, app.UPLOAD_BODY_MAX_BYTES)
+
     def test_routes_select_the_smallest_applicable_body_limit(self) -> None:
         route = object.__new__(app.Handler)
         route._body = mock.Mock(return_value={"url": "https://example.com"})

@@ -18,6 +18,9 @@ import requests
 import websockets
 
 CDP = "http://127.0.0.1:9222"
+# Finite bound on every CDP message; matches browser-agent's cdp_client.MESSAGE_MAX_BYTES. An
+# over-bound message closes the connection and the autostart supervisor respawns this process.
+MESSAGE_MAX_BYTES = 72 * 1024 * 1024
 SPOOF = Path(os.environ.get("SHIMPZ_SPOOF_JS", "/etc/shimpz/chrome-ext/spoof.js")).read_text()
 
 
@@ -34,7 +37,7 @@ async def run_once():
         _id += 1
         return _id
 
-    async with websockets.connect(browser_ws(), max_size=None, ping_interval=20) as ws:
+    async with websockets.connect(browser_ws(), max_size=MESSAGE_MAX_BYTES, ping_interval=20) as ws:
 
         async def send(method, params=None, session_id=None):
             m = {"id": nid(), "method": method, "params": params or {}}

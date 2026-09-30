@@ -11,8 +11,13 @@ import json
 
 import requests
 import websockets
+from websockets.frames import CloseCode
 
 CDP = "http://127.0.0.1:9222"
+# Every CDP websocket admits at most one message of this size: the same bound as the largest JSON
+# document the Browser API admits (app.UPLOAD_BODY_MAX_BYTES), so page HTML or evaluate results
+# can never grow a worker's buffers past the envelope the service is already sized for.
+MESSAGE_MAX_BYTES = 72 * 1024 * 1024
 
 
 class CDPError(Exception):
@@ -38,6 +43,21 @@ def pick(url_hint: str | None = None) -> dict:
     return ts[0]
 
 
+def _connect(url: str) -> websockets.asyncio.client.connect:
+    """Open one CDP websocket with the finite message bound."""
+    return websockets.connect(url, max_size=MESSAGE_MAX_BYTES)
+
+
+async def _recv(ws) -> dict:
+    """Receive one CDP message, classifying an over-bound message as a CDP failure."""
+    try:
+        return json.loads(await ws.recv())
+    except websockets.ConnectionClosed as exc:
+        if exc.sent is not None and exc.sent.code == CloseCode.MESSAGE_TOO_BIG:
+            raise CDPError(f"CDP message exceeds the {MESSAGE_MAX_BYTES}-byte bound") from exc
+        raise
+
+
 async def _cmd(ws, _id: int, method: str, params: dict | None = None, response_timeout: float = 15) -> dict:
     """Send one CDP command over `ws` and await ITS response (matched by id).
 
@@ -48,7 +68,7 @@ async def _cmd(ws, _id: int, method: str, params: dict | None = None, response_t
     try:
         async with asyncio.timeout(response_timeout):
             while True:
-                msg = json.loads(await ws.recv())
+                msg = await _recv(ws)
                 if msg.get("id") == _id:
                     break
     except TimeoutError as exc:
@@ -74,7 +94,7 @@ async def _evaluate(ws, expression: str) -> dict:
 
 async def _eval_async(js: str, url_hint: str | None) -> object:
     t = pick(url_hint)
-    async with websockets.connect(t["webSocketDebuggerUrl"], max_size=None) as ws:
+    async with _connect(t["webSocketDebuggerUrl"]) as ws:
         r = await _evaluate(ws, js)
         return r.get("value")
 
@@ -154,7 +174,7 @@ def text(selector: str, url_hint: str | None = None) -> str | None:
 def navigate(url: str, url_hint: str | None = None) -> None:
     async def _go() -> None:
         t = pick(url_hint)
-        async with websockets.connect(t["webSocketDebuggerUrl"], max_size=None) as ws:
+        async with _connect(t["webSocketDebuggerUrl"]) as ws:
             await _cmd(ws, 1, "Page.enable")
             await _cmd(ws, 2, "Page.navigate", {"url": url})
 
@@ -178,7 +198,7 @@ async def _render_async(url: str, wait_seconds: float) -> str:
     tab_id, ws_url = r["id"], r["webSocketDebuggerUrl"]
     try:
         await asyncio.sleep(wait_seconds)
-        async with websockets.connect(ws_url, max_size=None) as ws:
+        async with _connect(ws_url) as ws:
             expr = {"expression": "document.documentElement.outerHTML", "returnByValue": True}
             res = await _cmd(ws, 1, "Runtime.evaluate", expr)
             return (res.get("result", {}) or {}).get("value", "") or ""
@@ -198,7 +218,7 @@ async def _upload_dom_async(selector: str, path: str, url_hint: str | None) -> t
     last = "no tab"
     for t in ts:
         try:
-            async with websockets.connect(t["webSocketDebuggerUrl"], max_size=None) as ws:
+            async with _connect(t["webSocketDebuggerUrl"]) as ws:
                 await _cmd(ws, 1, "Runtime.enable")
                 await _cmd(ws, 2, "DOM.enable")
                 ev = await _cmd(

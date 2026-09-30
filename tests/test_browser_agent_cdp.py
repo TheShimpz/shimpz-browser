@@ -17,6 +17,10 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
+
+from websockets.asyncio.client import connect as real_connect
+from websockets.asyncio.server import serve
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "control"))
 import cdp_client as cdp
@@ -257,6 +261,75 @@ def test_unrelated_events_do_not_extend_the_command_deadline():
     check(raised, "a command whose response never arrives fails as a classified CDPError")
     check(ws.events > 1, "the fake page kept emitting events while the command was pending")
     check(elapsed < 1.0, f"one absolute deadline bounds the whole response loop (took {elapsed:.2f}s)")
+
+
+def test_every_cdp_connection_uses_the_finite_message_bound():
+    connections = []
+    ws = _WS({3: {"result": {"result": {"objectId": "input-1"}}}, 5: {"result": {"result": {"value": 1}}}})
+
+    def _record(url, **kwargs):
+        connections.append(kwargs)
+        return ws
+
+    page = {"webSocketDebuggerUrl": "ws://fake", "url": "https://example.com"}
+    tab = _Resp({"id": "tab-3", "webSocketDebuggerUrl": "ws://tab-3"})
+    with (
+        mock.patch.object(cdp, "pick", return_value=page),
+        mock.patch.object(cdp, "targets", return_value=[page]),
+        mock.patch.object(cdp.requests, "put", return_value=tab),
+        mock.patch.object(cdp.requests, "get", return_value=_Resp({})),
+        mock.patch.object(cdp.websockets, "connect", _record),
+    ):
+        cdp.eval_js("document.title")
+        cdp.navigate("https://example.com")
+        cdp.render("https://example.com", wait_seconds=0)
+        check(cdp.upload_dom("input", "upload.bin")[0], "the DOM upload completes over the bounded connection")
+    check(len(connections) == 4, "every CDP entry point opened exactly one connection")
+    check(
+        all(kwargs == {"max_size": cdp.MESSAGE_MAX_BYTES} for kwargs in connections),
+        "every CDP connection carries the finite message bound",
+    )
+
+
+async def _oversized_reply(ws):
+    await ws.recv()
+    await ws.send("x" * 2048)
+    await ws.wait_closed()
+
+
+async def _command_against_oversized_page():
+    async with serve(_oversized_reply, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with cdp._connect(f"ws://127.0.0.1:{port}") as ws:
+            await cdp._cmd(ws, 1, "Runtime.evaluate")
+
+
+def test_an_oversized_cdp_message_is_a_classified_failure():
+    with (
+        mock.patch.object(cdp, "MESSAGE_MAX_BYTES", 1024),
+        mock.patch.object(cdp.websockets, "connect", real_connect),
+    ):
+        try:
+            asyncio.run(_command_against_oversized_page())
+        except cdp.CDPError as exc:
+            check("1024-byte bound" in str(exc), "the failure names the bound, not the page content")
+        else:
+            raise AssertionError("an over-bound CDP message must fail as CDPError")
+
+
+class _ClosedWS:
+    async def send(self, payload):
+        return None
+
+    async def recv(self):
+        raise cdp.websockets.ConnectionClosed(None, None)
+
+
+def test_an_ordinary_closed_connection_is_not_reported_as_oversized():
+    check(
+        raises(cdp.websockets.ConnectionClosed, lambda: asyncio.run(cdp._cmd(_ClosedWS(), 1, "Page.enable"))),
+        "a connection closed for another reason keeps its websocket failure",
+    )
 
 
 def load_tests(_loader, _tests, _pattern):

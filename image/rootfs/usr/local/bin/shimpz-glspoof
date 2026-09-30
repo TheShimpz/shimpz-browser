@@ -12,15 +12,18 @@ lives at /etc/shimpz/chrome-ext/spoof.js.
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 
+import requests
 import websockets
 
-sys.path.insert(0, os.environ.get("SHIMPZ_LIB", "/opt/shimpz-lib"))
-import shimpzcdp  # shared CDP plumbing (see /opt/shimpz-lib/shimpzcdp.py)
-
+CDP = "http://127.0.0.1:9222"
 SPOOF = Path(os.environ.get("SHIMPZ_SPOOF_JS", "/etc/shimpz/chrome-ext/spoof.js")).read_text()
+
+
+def browser_ws():
+    """The BROWSER-level websocket URL (Target.* auto-attach lives here, not on a page target)."""
+    return requests.get(f"{CDP}/json/version", timeout=5).json()["webSocketDebuggerUrl"]
 
 
 async def run_once():
@@ -31,7 +34,7 @@ async def run_once():
         _id += 1
         return _id
 
-    async with websockets.connect(shimpzcdp.browser_ws(), max_size=None, ping_interval=20) as ws:
+    async with websockets.connect(browser_ws(), max_size=None, ping_interval=20) as ws:
 
         async def send(method, params=None, session_id=None):
             m = {"id": nid(), "method": method, "params": params or {}}

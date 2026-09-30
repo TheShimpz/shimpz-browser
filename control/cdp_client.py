@@ -41,15 +41,21 @@ def pick(url_hint: str | None = None) -> dict:
 async def _cmd(ws, _id: int, method: str, params: dict | None = None, response_timeout: float = 15) -> dict:
     """Send one CDP command over `ws` and await ITS response (matched by id).
 
-    FAIL-LOUD: a CDP protocol error raises, never returns a silent {}.
+    FAIL-LOUD: a CDP protocol error raises, never returns a silent {}. One absolute deadline covers
+    the whole response-matching loop, so unrelated events cannot keep the command pending.
     """
     await ws.send(json.dumps({"id": _id, "method": method, "params": params or {}}))
-    while True:
-        msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=response_timeout))
-        if msg.get("id") == _id:
-            if "error" in msg:
-                raise CDPError(msg["error"].get("message", str(msg["error"])))
-            return msg.get("result", {})
+    try:
+        async with asyncio.timeout(response_timeout):
+            while True:
+                msg = json.loads(await ws.recv())
+                if msg.get("id") == _id:
+                    break
+    except TimeoutError as exc:
+        raise CDPError(f"CDP {method} response timed out") from exc
+    if "error" in msg:
+        raise CDPError(msg["error"].get("message", str(msg["error"])))
+    return msg.get("result", {})
 
 
 async def _evaluate(ws, expression: str) -> dict:

@@ -5,15 +5,16 @@ This is the server-side successor to what tests/test-shimpz-cdp.py used to cover
 viewport→desktop pixel math (_screen_xy/_viewport_xy), the injection-safety of the geometry JS
 template (_GEOM_JS), and the CDP wire-protocol handling (_cmd/_evaluate/eval_js/rect/text/navigate)
 all moved server-side into this module — `shimpz-brain` (the brain) never sees CDP again, only browser-agent's
-HTTP surface (see test-shimpz-cdp.py for THAT thin-client side). No live Chrome here: `requests` +
-`websockets` are stubbed in sys.modules BEFORE import (same pattern the old test-shimpz-cdp.py used for
-shimpzcdp.py), then the REAL _cmd()/_evaluate()/rect()/text()/navigate()/render() run over a
+HTTP surface. No live Chrome here: `pick()`, `requests`, and `websockets.connect` are pointed at
+fakes, then the REAL _cmd()/_evaluate()/rect()/text()/navigate()/render() run over a
 protocol-speaking fake websocket — nothing stubbed above the wire, so the error/fail-fast branches
 actually execute through the Browser repository's unittest discovery.
 """
 
+import asyncio
 import json
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -231,6 +232,31 @@ def test_render_closes_the_tab_even_when_render_raises():
         any("json/close/tab-2" in u for u in get_calls),
         "the tab is STILL closed even though render raised — proves the try/finally, not just the happy path",
     )
+
+
+class _EventFloodWS:
+    """A page that emits unrelated CDP events forever and never answers the command."""
+
+    def __init__(self):
+        self.events = 0
+
+    async def send(self, payload):
+        return None
+
+    async def recv(self):
+        await asyncio.sleep(0.01)
+        self.events += 1
+        return json.dumps({"method": "Network.dataReceived", "params": {}})
+
+
+def test_unrelated_events_do_not_extend_the_command_deadline():
+    ws = _EventFloodWS()
+    started = time.monotonic()
+    raised = raises(cdp.CDPError, lambda: asyncio.run(cdp._cmd(ws, 1, "Runtime.evaluate", response_timeout=0.1)))
+    elapsed = time.monotonic() - started
+    check(raised, "a command whose response never arrives fails as a classified CDPError")
+    check(ws.events > 1, "the fake page kept emitting events while the command was pending")
+    check(elapsed < 1.0, f"one absolute deadline bounds the whole response loop (took {elapsed:.2f}s)")
 
 
 def load_tests(_loader, _tests, _pattern):

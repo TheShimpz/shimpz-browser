@@ -80,10 +80,36 @@ class DownloadFetchTests(unittest.TestCase):
         os.mkfifo(self.root / "pipe.bin")
         (self.root / "nested").mkdir()
         before = self._open_descriptors()
-        for name in ("missing.bin", "escape.bin", "linked.bin", "pipe.bin", "nested", ".", ".."):
+        (self.root / "nested" / "inner.bin").write_bytes(b"x")
+        (self.root / "inner.bin").write_bytes(b"x")
+        for name in ("missing.bin", "escape.bin", "linked.bin", "pipe.bin", "nested", "nested/inner.bin", ".", ".."):
             with self.subTest(name=name), self.assertRaises(downloads_client.DownloadError):
                 downloads_client.fetch(name)
         self.assertEqual(self._open_descriptors(), before)
+
+    def test_admits_direct_children_of_relative_and_filesystem_root_directories(self) -> None:
+        (self.root / "report.pdf").write_bytes(b"x")
+        working_directory = Path.cwd()
+        os.chdir(self.root)
+        self.addCleanup(os.chdir, working_directory)
+        with mock.patch.object(downloads_client, "DOWNLOAD_DIR", Path()):
+            self.assertEqual(downloads_client.fetch("report.pdf"), b"x")
+
+        real_open = os.open
+        opened = []
+
+        def open_root_as_test_directory(
+            path: object, flags: int, mode: int = 0o777, *, dir_fd: int | None = None
+        ) -> int:
+            opened.append(path)
+            return real_open(self.root if dir_fd is None else path, flags, mode, dir_fd=dir_fd)
+
+        with (
+            mock.patch.object(downloads_client, "DOWNLOAD_DIR", Path("/")),
+            mock.patch.object(downloads_client.os, "open", open_root_as_test_directory),
+        ):
+            self.assertEqual(downloads_client.fetch("report.pdf"), b"x")
+        self.assertEqual(opened, [Path("/"), "report.pdf"])
 
     def test_refuses_an_unavailable_or_symlinked_download_directory(self) -> None:
         (self.root / "real").mkdir()

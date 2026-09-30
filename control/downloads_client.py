@@ -36,16 +36,26 @@ def list_downloads() -> list[dict]:
 def _open_download(name: str) -> int:
     """Open the basename `name` relative to a pinned DOWNLOAD_DIR descriptor, never following a symlink.
 
-    `name` is already validate.validate_filename()-checked by the caller, but the guarantee is the
-    descriptor walk: a name swapped for a symlink after any earlier check fails this open instead of
-    reaching a file outside the directory, and every later check and read uses the returned descriptor.
+    `name` is already validate.validate_filename()-checked by the caller, and it must also normalize
+    lexically to a direct child of DOWNLOAD_DIR; only that checked child's basename is opened. The
+    guarantee is the descriptor walk: a name swapped for a symlink after any earlier check fails this
+    open instead of reaching a file outside the directory, and every later check and read uses the
+    returned descriptor.
     """
+    root = os.path.normpath(Path(DOWNLOAD_DIR).absolute())
+    candidate = os.path.normpath(Path(root, name))
+    if not candidate.startswith(root.rstrip(os.sep) + os.sep) or Path(candidate).parent != Path(root):
+        raise DownloadError(f"no such download: {name!r}")
     try:
         directory = os.open(DOWNLOAD_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError as exc:
         raise DownloadError("download directory is unavailable") from exc
     try:
-        return os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=directory)
+        return os.open(
+            Path(candidate).name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+            dir_fd=directory,
+        )
     except OSError as exc:
         raise DownloadError(f"no such download: {name!r}") from exc
     finally:

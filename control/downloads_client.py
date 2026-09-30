@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import validate
+
 DOWNLOAD_DIR = Path(os.environ.get("SHIMPZ_BROWSER_DOWNLOAD_DIR", "/config/downloads"))
 
 
@@ -47,5 +49,14 @@ def _resolve(name: str) -> Path:
 
 
 def fetch(name: str) -> bytes:
+    """One download's bytes, admitted by size before reading and never read past the bound.
+
+    The open file's size is admitted first, then the read is capped one byte past the bound so a
+    file Chrome is still growing cannot push the buffered response over DOWNLOAD_MAX_BYTES.
+    """
     path = _resolve(name)
-    return path.read_bytes()
+    with path.open("rb") as fh:
+        validate.validate_download_size(os.fstat(fh.fileno()).st_size)
+        data = fh.read(validate.DOWNLOAD_MAX_BYTES + 1)
+    validate.validate_download_size(len(data))
+    return data

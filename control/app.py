@@ -262,7 +262,6 @@ def _downloads_fetch(name: str) -> bytes:
         data = downloads_client.fetch(name)
     except downloads_client.DownloadError as exc:
         raise ApiError(HTTPStatus.NOT_FOUND, str(exc)) from exc
-    validate.validate_download_size(len(data))
     return data
 
 

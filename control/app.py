@@ -58,6 +58,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import cdp_client
 import downloads_client
+import native_process
 import screenshot_client
 import upload_client
 import xtest_client
@@ -381,7 +382,12 @@ class Handler(BaseHTTPRequestHandler):
                 status=HTTPStatus.BAD_REQUEST,
             )
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-        except (xtest_client.XTestError, cdp_client.CDPError, screenshot_client.ScreenshotError) as exc:
+        except (
+            xtest_client.XTestError,
+            cdp_client.CDPError,
+            screenshot_client.ScreenshotError,
+            native_process.NativeProcessError,
+        ) as exc:
             audit.log(
                 method.lower(),
                 route,

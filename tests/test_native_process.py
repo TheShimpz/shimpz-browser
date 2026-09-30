@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -24,7 +25,45 @@ class NativeProcessTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
+            timeout=native_process.TIMEOUT_SECONDS,
         )
+
+    def test_kills_a_blocked_child_and_raises_a_closed_error(self) -> None:
+        children = []
+        real_popen = subprocess.Popen
+
+        def tracking_popen(*args: object, **kwargs: object) -> subprocess.Popen:
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        with (
+            mock.patch.object(native_process, "_EXECUTABLES", frozenset({"/bin/sleep"})),
+            mock.patch.object(native_process, "TIMEOUT_SECONDS", 0.2),
+            mock.patch.object(native_process.subprocess, "Popen", tracking_popen),
+        ):
+            started = time.monotonic()
+            with self.assertRaises(native_process.NativeProcessError) as caught:
+                native_process._run("/bin/sleep", ("30",))
+            elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 5)
+        self.assertEqual(str(caught.exception), "sleep timed out after 0.2s")
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(len(children), 1)
+        self.assertEqual(children[0].returncode, -9, "the timed-out child was killed and reaped")
+
+    def test_timeout_error_never_carries_argv_or_output(self) -> None:
+        expired = subprocess.TimeoutExpired(["/usr/bin/xdotool", "type", "--", "typed-secret"], 30, "out", "err")
+        with (
+            mock.patch.object(native_process.subprocess, "run", side_effect=expired),
+            self.assertRaises(native_process.NativeProcessError) as caught,
+        ):
+            native_process.run_xdotool("type", "--", "typed-secret")
+
+        self.assertNotIn("typed-secret", str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertTrue(caught.exception.__suppress_context__)
 
     def test_rejects_any_executable_outside_the_image_allowlist(self) -> None:
         with (

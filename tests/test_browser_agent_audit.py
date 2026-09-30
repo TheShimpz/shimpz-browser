@@ -102,6 +102,16 @@ class BrowserAuditTests(unittest.TestCase):
         self.assertIn('"reason_code": "validation_error"', failed)
         self.assertNotIn("typed-secret", failed)
 
+    def test_timed_out_native_process_is_a_classified_upstream_error(self) -> None:
+        route = handler()
+        route.path = "/v1/browser/click"
+        route._authed = mock.Mock(return_value=True)
+        route._route = mock.Mock(side_effect=app.native_process.NativeProcessError("xdotool timed out after 30s"))
+        route._dispatch("POST")
+
+        route._send_json.assert_called_once_with(HTTPStatus.BAD_GATEWAY, {"error": "xdotool timed out after 30s"})
+        self.assertIn('"reason_code": "upstream_error"', audit.AUDIT_PATH.read_text(encoding="utf-8"))
+
     def test_screenshot_route_audits_only_the_payload_size(self) -> None:
         route = handler()
         png = b"\x89PNG-private-image"

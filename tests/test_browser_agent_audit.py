@@ -112,6 +112,24 @@ class BrowserAuditTests(unittest.TestCase):
         route._send_json.assert_called_once_with(HTTPStatus.BAD_GATEWAY, {"error": "xdotool timed out after 30s"})
         self.assertIn('"reason_code": "upstream_error"', audit.AUDIT_PATH.read_text(encoding="utf-8"))
 
+    def test_navigate_reports_download_and_classifies_failed_navigation(self) -> None:
+        body = {"url": "https://example.com/file.zip"}
+        with mock.patch.object(app.cdp_client, "navigate", return_value=True):
+            self.assertEqual(app._navigate(body), {"navigated": False, "download": True})
+        with mock.patch.object(app.cdp_client, "navigate", return_value=False):
+            self.assertEqual(app._navigate(body), {"navigated": True, "download": False})
+
+        route = handler()
+        route.path = "/v1/browser/navigate"
+        route._authed = mock.Mock(return_value=True)
+        route._body = mock.Mock(return_value=body)
+        with mock.patch.object(
+            app.cdp_client, "navigate", side_effect=app.cdp_client.CDPError("CDP Page.navigate failed")
+        ):
+            route._dispatch("POST")
+        route._send_json.assert_called_once_with(HTTPStatus.BAD_GATEWAY, {"error": "CDP Page.navigate failed"})
+        self.assertIn('"reason_code": "upstream_error"', audit.AUDIT_PATH.read_text(encoding="utf-8"))
+
     def test_failed_native_operations_never_return_typed_text_or_tool_output(self) -> None:
         failed = mock.Mock(returncode=1, stdout="typed-secret", stderr="typed-secret")
         route = handler()

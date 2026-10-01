@@ -182,6 +182,26 @@ def test_navigate_sends_enable_then_navigate_in_order():
     check(nav["params"] == {"url": "https://example.com/x"}, "the navigate command carries the exact url")
 
 
+def test_navigate_reports_a_committed_page_as_no_download():
+    _wire({2: {"result": {"frameId": "F", "loaderId": "L"}}})
+    check(cdp.navigate("https://example.com") is False, "a committed navigation is not a download")
+
+
+def test_navigate_error_text_raises_a_generic_cdperror():
+    _wire({2: {"result": {"frameId": "F", "errorText": "net::ERR_NAME_NOT_RESOLVED <page-detail>"}}})
+    try:
+        cdp.navigate("https://unresolvable.invalid")
+    except cdp.CDPError as exc:
+        check(str(exc) == "CDP Page.navigate failed", "the failure is generic and never echoes errorText")
+    else:
+        raise AssertionError("a navigation result carrying errorText must raise CDPError")
+
+
+def test_navigate_download_is_distinguished_from_a_failed_navigation():
+    _wire({2: {"result": {"frameId": "F", "isDownload": True, "errorText": "net::ERR_ABORTED"}}})
+    check(cdp.navigate("https://example.com/file.zip") is True, "an isDownload result is reported as a download")
+
+
 # ══ render(): opens a FRESH tab (fake requests.put), reads outerHTML over the fake ws, ALWAYS closes ══
 # the tab (fake requests.get) — even when the render itself raises. This is the specific bug class the
 # real code's try/finally exists to prevent: a failed render must never orphan a live Chrome tab.

@@ -171,14 +171,27 @@ def text(selector: str, url_hint: str | None = None) -> str | None:
     return (v.get("t") or "").strip()
 
 
-def navigate(url: str, url_hint: str | None = None) -> None:
-    async def _go() -> None:
+def navigate(url: str, url_hint: str | None = None) -> bool:
+    """Navigate the page target to `url`; True when Chrome handled it as a download instead.
+
+    FAIL-LOUD: CDP reports a failed navigation as a normal result carrying `errorText`, so that
+    result raises a generic CDPError (the page-controlled detail is never echoed). A download is
+    reported through `isDownload` (Chrome may pair it with an aborted-navigation `errorText`) and is
+    not a failure: the file lands in the downloads directory the existing download API reads.
+    """
+
+    async def _go() -> dict:
         t = pick(url_hint)
         async with _connect(t["webSocketDebuggerUrl"]) as ws:
             await _cmd(ws, 1, "Page.enable")
-            await _cmd(ws, 2, "Page.navigate", {"url": url})
+            return await _cmd(ws, 2, "Page.navigate", {"url": url})
 
-    asyncio.run(_go())
+    result = asyncio.run(_go())
+    if result.get("isDownload") is True:
+        return True
+    if result.get("errorText"):
+        raise CDPError("CDP Page.navigate failed")
+    return False
 
 
 async def _render_async(url: str, wait_seconds: float) -> str:

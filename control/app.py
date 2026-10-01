@@ -30,7 +30,7 @@ Endpoints (all require `Authorization: Bearer <token>` — see token_store.py):
   POST   /v1/browser/scroll           {direction, amount?}
   GET    /v1/browser/pos              -> {x, y}
   GET    /v1/browser/screenshot       -> PNG bytes (X-Screen-Geometry header, e.g. "1280x800")
-  POST   /v1/browser/navigate         {url, url_hint?}
+  POST   /v1/browser/navigate         {url, url_hint?} -> {navigated, download}
   POST   /v1/browser/render           {url, wait_seconds?} -> {html} (fresh tab, JS-rendered, closed after)
   POST   /v1/browser/cdp/eval         {js, url_hint?} -> {value}
   GET    /v1/browser/cdp/rect         ?selector=&url_hint= -> {screen_x, screen_y, viewport_x,
@@ -185,8 +185,8 @@ def _pos() -> dict:
 def _navigate(body: dict) -> dict:
     url = validate.validate_navigate_url(body.get("url"))
     url_hint = validate.validate_url_hint(body.get("url_hint"))
-    cdp_client.navigate(url, url_hint)
-    return {"navigated": True}
+    download = cdp_client.navigate(url, url_hint)
+    return {"navigated": not download, "download": download}
 
 
 def _render(body: dict) -> dict:
